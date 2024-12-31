@@ -4,20 +4,26 @@ import requests
 
 parser = argparse.ArgumentParser("bsky_follow_collisions")
 parser.add_argument("handle", help="Bluesky handle")
-parser.add_argument("app_password", help="Bluesky app password")
+parser.add_argument("app_password", help="Bluesky app password", nargs='?')
 
 args = parser.parse_args()
 
 bsky_handle = args.handle
+if args.app_password is None:
+    print("No app password provided, running in unauthenticated mode. Will only determine if there are blocked follows but not who they are.")
+    authenticated = False
+else:
+    authenticated = True
 bsky_app_password = args.app_password
 
-app_password_regex = r"^[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}"
-match = re.match(app_password_regex, bsky_app_password)
-if match is None:
-    print("Use an app password instead of your actual password! Generate one at https://bsky.app/settings/app-passwords.")
-    exit(1)
-else:
-    pass
+if authenticated:
+    app_password_regex = r"^[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}"
+    match = re.match(app_password_regex, bsky_app_password)
+    if match is None or len(bsky_app_password) != 19:
+        print("Use an app password instead of your actual password! Generate one at https://bsky.app/settings/app-passwords.")
+        exit(1)
+    else:
+        pass
 
 
 bsky_resolve_handle_url = f"https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=\
@@ -34,23 +40,27 @@ endpoint = resp['service'][0]['serviceEndpoint']
 
 print(f"using {endpoint} as PDS")
 
-session_url = f"{endpoint}/xrpc/com.atproto.server.createSession"
+if authenticated:
 
-headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    session_url = f"{endpoint}/xrpc/com.atproto.server.createSession"
 
-raw_data = '{"identifier": "%s", "password": "%s"}' % (
-    bsky_handle, bsky_app_password)
+    headers = {"Content-Type": "application/json",
+               "Accept": "application/json"}
 
-auth_req = requests.post(session_url, headers=headers,
-                         data=raw_data, timeout=5)
-bsky_token = auth_req.json()['accessJwt']
+    raw_data = '{"identifier": "%s", "password": "%s"}' % (
+        bsky_handle, bsky_app_password)
+    auth_req = requests.post(session_url, headers=headers,
+                             data=raw_data, timeout=5)
+    bsky_token = auth_req.json()['accessJwt']
 
-headers = {"Authorization": f"Bearer {bsky_token}"}
+    headers = {"Authorization": f"Bearer {bsky_token}"}
 
 bsky_follows_url = f"{endpoint}/xrpc/com.atproto.repo.listRecords?repo=\
 {bsky_handle}&collection=app.bsky.graph.follow"
-bsky_filtered_follows_url = f"{endpoint}/xrpc/app.bsky.graph.getFollows?actor=\
-{bsky_handle}"
+if authenticated:
+    bsky_filtered_follows_url = f"{endpoint}/xrpc/app.bsky.graph.getFollows?actor={bsky_handle}"
+else:
+    bsky_filtered_follows_url = f"https://public.api.bsky.app/xrpc/app.bsky.graph.getFollows?actor={bsky_handle}"
 
 follow_dids = []
 cursor = ""
@@ -70,8 +80,12 @@ presented_follow_count = 0
 cursor = ""
 
 while 1:
-    follows_resp = requests.get(
-        bsky_filtered_follows_url + f"&limit=100&cursor={cursor}", timeout=5, headers=headers)
+    if authenticated:
+        follows_resp = requests.get(
+            bsky_filtered_follows_url + f"&limit=100&cursor={cursor}", timeout=5, headers=headers)
+    else:
+        follows_resp = requests.get(
+            bsky_filtered_follows_url + f"&limit=100&cursor={cursor}", timeout=5)
     follows_json = follows_resp.json()
     presented_follow_count += len(follows_json['follows'])
     if "cursor" in follows_json:
@@ -87,8 +101,10 @@ if presented_follow_count == len(follow_dids):
     exit(0)
 else:
     print("🚨🚨🚨 follow count inconsistent 🚨🚨🚨")
-    
-# now find out the subscribed blocklists
+
+if not authenticated:
+    print("Cannot proceed without authentication, exiting.")
+    exit(0)
 
 bsky_listblocks_url = f"{endpoint}/xrpc/app.bsky.graph.getListBlocks"
 
