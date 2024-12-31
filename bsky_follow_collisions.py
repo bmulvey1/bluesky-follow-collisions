@@ -113,7 +113,7 @@ cursor = ""
 
 while 1:
     listblocks_resp = requests.get(
-        bsky_listblocks_url + f"?cursor={cursor}", headers=headers, timeout=5)
+        bsky_listblocks_url + f"?limit=100&cursor={cursor}", headers=headers, timeout=5) # cursor seems to not exist for this endpoint currently
     listblocks_json = listblocks_resp.json()
     for i in listblocks_json['lists']:
         listblocks.append(i['uri'])
