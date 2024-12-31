@@ -93,8 +93,8 @@ while 1:
     else:
         break
 
-print(f"presented # follows: {presented_follow_count}")
-print(f"# follow DIDs: {len(follow_dids)}")
+print(f"presented # of follows: {presented_follow_count}")
+print(f"# of follow DIDs: {len(follow_dids)}")
 
 if presented_follow_count == len(follow_dids):
     print("follow count consistent, none are blocked or deleted")
@@ -124,7 +124,6 @@ while 1:
 
 print(f"# subscribed blocklists: {len(listblocks)}")
 
-# no auth required
 bsky_list_details_url = f"{endpoint}/xrpc/app.bsky.graph.getList"
 
 collisions = []
@@ -147,4 +146,14 @@ for l in listblocks:
     for collision in intersections:
         collisions.append((l, collision))
 
-print(collisions)
+bsky_profile_url = "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile"
+bsky_public_list_details_url = "https://public.api.bsky.app/xrpc/app.bsky.graph.getList"
+
+for collision in collisions:
+    blocked_profile = requests.get(f"{bsky_profile_url}?actor={collision[1]}", timeout=5).json()
+    blocked_handle = blocked_profile['handle']
+    
+    blocking_list = requests.get(f"{bsky_public_list_details_url}?list={collision[0]}&limit=1", timeout=5).json()
+    blocking_list_creator = blocking_list['list']['creator']['handle']
+    blocking_list_name = blocking_list['list']['name']
+    print(f"{blocked_handle} is blocked by the list '{blocking_list_name}' created by {blocking_list_creator}.")
