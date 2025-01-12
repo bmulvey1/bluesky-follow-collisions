@@ -31,9 +31,8 @@ if authenticated:
         sys.exit(1)
     else:
         pass
- 
-bsky_resolve_handle_url = f"https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=\
-{bsky_handle}"
+
+bsky_resolve_handle_url = f"https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle={bsky_handle}"
 try:
     resolved_handle_resp = requests.get(bsky_resolve_handle_url, timeout=REQUEST_TIMEOUT)
 except requests.exceptions.Timeout as e:
@@ -65,8 +64,7 @@ if authenticated:
     headers = {"Content-Type": "application/json",
                "Accept": "application/json"}
 
-    raw_data = '{"identifier": "%s", "password": "%s"}' % (
-        bsky_handle, bsky_app_password)
+    raw_data = f'{{"identifier": "{bsky_handle}", "password": "{bsky_app_password}"}}'
     try:
         auth_req = requests.post(session_url, headers=headers,
                                  data=raw_data, timeout=REQUEST_TIMEOUT)
@@ -108,8 +106,7 @@ def paginate_request(url, keys):
         print(".", end="", flush=True)
     return resp_list
 
-bsky_follows_url = f"{endpoint}/xrpc/com.atproto.repo.listRecords?repo=\
-{bsky_handle}&collection=app.bsky.graph.follow"
+bsky_follows_url = f"{endpoint}/xrpc/com.atproto.repo.listRecords?repo={bsky_handle}&collection=app.bsky.graph.follow"
 if authenticated:
     bsky_filtered_follows_url = f"{endpoint}/xrpc/app.bsky.graph.getFollows?actor={bsky_handle}"
 else:
