@@ -17,7 +17,7 @@ args = parser.parse_args()
 bsky_handle = args.handle
 
 if args.app_password is None:
-    print("No app password provided, running in unauthenticated mode. Will only determine if there are blocked follows but not who they are.")
+    print("No app password provided, running in unauthenticated mode. Will only determine what follows are blocked but not what lists are blocking them.")
     authenticated = False
 else:
     authenticated = True
@@ -78,6 +78,8 @@ if authenticated:
     bsky_token = auth_req.json()['accessJwt']
 
     headers = {"Authorization": f"Bearer {bsky_token}"}
+else:
+    headers = None
 
 def paginate_request(url, keys):
     resp_list = []
@@ -130,57 +132,32 @@ if presented_follow_count == len(follow_dids):
     sys.exit(0)
 else:
     print("🚨🚨🚨 follow count inconsistent 🚨🚨🚨")
+   
+missing_follows = set(follow_dids) - set(presented_follows)
 
-if not authenticated:
-    print("Cannot proceed without authentication, exiting.")
-    sys.exit(0)
+if authenticated:
+    bsky_profile_url = f"{endpoint}/xrpc/app.bsky.actor.getProfile"
+else:
+    bsky_profile_url = "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile"
+    print("Authentication needed to determine what lists are blocking follows! Only blocked follows will be shown.")
 
-bsky_listblocks_url = f"{endpoint}/xrpc/app.bsky.graph.getListBlocks?"
-
-print("Finding subscribed blocklists...", end="")
-listblocks = paginate_request(bsky_listblocks_url, ['lists', 'uri'])
-
-print(f"\n# subscribed blocklists: {len(listblocks)}", end="")
-
-bsky_list_details_url = f"{endpoint}/xrpc/app.bsky.graph.getList"
-
-collisions = []
-
-for l in listblocks:
-    print(f"\nFinding members of list {l}...", end="")
- 
-    members_dict = paginate_request(bsky_list_details_url + f"?list={l}", ['items', 'subject'])
-    members = [member['did'] for member in members_dict]
-
-    intersections = set(follow_dids).intersection(set(members))
-    for collision in intersections:
-        collisions.append((l, collision))
-
-bsky_profile_url = "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile"
-bsky_public_list_details_url = "https://public.api.bsky.app/xrpc/app.bsky.graph.getList"
-print("")
-
-for collision in collisions:
+for follow in missing_follows:
     try:
-        blocked_profile_resp = requests.get(f"{bsky_profile_url}?actor={collision[1]}", timeout=REQUEST_TIMEOUT)
-    except requests.exceptions.Timeout as e:
-        print(f"Something failed, unformatted collision contents:{collisions}")
-        sys.exit(1)
-    if blocked_profile_resp.status_code != 200:
-        print(f"Something failed, unformatted collision contents: {collisions}")
-        print(f"Response status code {blocked_profile_resp.status_code} from request {blocked_profile_resp.url} with error {blocked_profile_resp.json()['error']} and message {blocked_profile_resp.json()['message']} ", file=sys.stderr)
-        raise SystemExit(blocked_profile_resp.json()['error'])
-    blocked_handle = blocked_profile_resp.json()['handle']
- 
-    try:
-        blocking_list_resp = requests.get(f"{bsky_public_list_details_url}?list={collision[0]}&limit=1", timeout=REQUEST_TIMEOUT)
-    except requests.exceptions.Timeout as e:
-        print(f"Something failed, unformatted collision contents:{collisions}")
+        profile_resp = requests.get(bsky_profile_url + f"?actor={follow}", headers=headers, timeout=REQUEST_TIMEOUT)
+    except requests.exceptions.Timeout as e: # bail!
+        print(f"Request timed out! Unformatted missing follows: {missing_follows}")
         raise SystemExit(e)
-    if blocking_list_resp.status_code != 200:
-        print(f"Something failed, unformatted collision contents: {collisions}")
-        print(f"Response status code {blocking_list_resp.status_code} from request {blocking_list_resp.url} with error {blocking_list_resp.json()['error']} and message {blocking_list_resp.json()['message']} ", file=sys.stderr)
-        raise SystemExit(blocking_list_resp.json()['error'])
-    blocking_list_creator = blocking_list_resp.json()['list']['creator']['handle']
-    blocking_list_name = blocking_list_resp.json()['list']['name']
-    print(f"{blocked_handle} is blocked by the list '{blocking_list_name}' created by {blocking_list_creator}.")
+    profile_resp_json = profile_resp.json()
+    if profile_resp.status_code != 200:
+        if profile_resp_json['error'] == "InvalidRequest":
+            print(f"{follow} is likely missing because the account has been deleted")
+        else:
+            print(f"{follow} is missing because the {profile_resp_json['message'].lower()}")
+        continue
+    if authenticated:
+        if "blockingByList" in profile_resp_json['viewer']:
+            print(f"{profile_resp_json['handle']} is blocked by the list {profile_resp_json['viewer']['blockingByList']['name']}")
+        else:
+            print(f"{profile_resp_json['handle']} has been manually blocked")
+    else:
+        print(f"{profile_resp_json['handle']} is blocked")
